@@ -234,7 +234,10 @@ dc_Actor* dc_Actor_create_player_slice(dc_Frames* frame_data, Vector2 pos, float
   slice->textures = frame_data->slice_textures;
   slice->sources = frame_data->slice_rects;
   slice->rotation = rot;
-  slice->position = (Vector2){pos.x - 16 * cos(rot * PI / 180), pos.y - 16 * sin(rot * PI / 180)};
+  // slice->position = (Vector2){pos.x - 16 * cos(rot * DEG2RAD), pos.y - 16 * sin(rot * DEG2RAD)};
+  slice->position = pos;
+  slice->position.x -= 16 * cos(rot * DEG2RAD);
+  slice->position.y -= 16 * sin(rot * DEG2RAD);
   // slice->origin = (Vector2){15, 16};
   slice->origin = (Vector2){TILE_WIDTH/2, TILE_HEIGHT/2};
   slice->velocity = (Vector2){0};
