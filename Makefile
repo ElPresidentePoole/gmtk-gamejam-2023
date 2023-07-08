@@ -11,17 +11,14 @@ ifneq ($(BUILD), release)
 	FLAGS += -g
 endif
 
-default: rpg
+default: dc
 
 main.o: main.c $(HEADERS)
 	$(CC) -c main.c -o main.o $(FLAGS)
 
-rpg: $(OBJECTS)
-	$(CC) $(OBJECTS) -o rpg $(FLAGS)
-
-run:
-	./rpg
+dc: $(OBJECTS)
+	$(CC) $(OBJECTS) -o dc $(FLAGS)
 
 clean:
 	-rm -f main.o
-	-rm -f rpg
+	-rm -f dc
