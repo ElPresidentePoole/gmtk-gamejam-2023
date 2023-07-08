@@ -92,7 +92,11 @@ int main(int argc, char** argv) {
   dc_Tilesets tilesets = {.interface = LoadTexture("./gfx/oryx/Interface.png"), .terrain = LoadTexture("./gfx/oryx/Terrain.png")};
 
   RenderTexture2D r_target = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
+  //SetTextureFilter(r_target.texture, TEXTURE_FILTER_POINT);
   Rectangle r_target_rect = {0, 0, r_target.texture.width, -r_target.texture.height};
+
+  Font font = LoadFontEx("./gfx/alagard.ttf", 14, NULL, 0);
+  //SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
 
   unsigned int number_of_rooms = 10;
   dc_Room** rooms = malloc(sizeof(dc_Room*) * number_of_rooms);
@@ -115,6 +119,9 @@ int main(int argc, char** argv) {
 
       dc_draw_player_health(tilesets, 3, 10);
 
+      DrawTextEx(font, "Monsters Remaining ?/?", (Vector2){150, 20}, 14.f, 0.1f, WHITE);
+      // SetTextureFilter
+
       EndTextureMode();
       Rectangle r_window_rect = {0, 0, GetScreenWidth(), GetScreenHeight()};
       DrawTexturePro(r_target.texture, r_target_rect, r_window_rect, (Vector2){0, 0}, 0.f, WHITE);
@@ -129,6 +136,8 @@ int main(int argc, char** argv) {
     if(rooms[i] != NULL) free(rooms[i]);
   }
   free(rooms);
+
+  UnloadFont(font);
 
   return 0;
 }
