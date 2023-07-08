@@ -70,15 +70,15 @@ void dc_draw_player_health(dc_Tilesets tilesets, int hp, int hp_max) {
   unsigned int half_hearts = hp % 2;
   unsigned int empty_hearts = hp_max / 2 - full_hearts - half_hearts;
   for(int i = 0; i < full_hearts; i++) {
-    DrawTexturePro(tilesets.interface, (Rectangle){160, 120, 16, 24}, (Rectangle){15 + 24*i, 15, 16, 24}, (Vector2){0, 0}, 0.f, WHITE);
-    DrawTexturePro(tilesets.interface, (Rectangle){176, 120, 16, 24}, (Rectangle){15 + 24*i, 14, 16, 24}, (Vector2){0, 0}, 0.f, RED);
+    DrawTexturePro(tilesets.interface, (Rectangle){160, 120, 16, 24}, (Rectangle){15 + TILE_WIDTH*i, 15, 16, 24}, (Vector2){0, 0}, 0.f, WHITE);
+    DrawTexturePro(tilesets.interface, (Rectangle){176, 120, 16, 24}, (Rectangle){15 + TILE_WIDTH*i, 14, 16, 24}, (Vector2){0, 0}, 0.f, RED);
   }
   for(int i = 0; i < half_hearts; i++) {
-    DrawTexturePro(tilesets.interface, (Rectangle){144, 120, 16, 24}, (Rectangle){15 + 24*i + full_hearts*24, 15, 16, 24}, (Vector2){0, 0}, 0.f, RED);
-    DrawTexturePro(tilesets.interface, (Rectangle){160, 120, 16, 24}, (Rectangle){15 + 24*i + full_hearts*24, 15, 16, 24}, (Vector2){0, 0}, 0.f, WHITE);
+    DrawTexturePro(tilesets.interface, (Rectangle){144, 120, 16, 24}, (Rectangle){15 + TILE_WIDTH*i + full_hearts*TILE_WIDTH, 15, 16, 24}, (Vector2){0, 0}, 0.f, RED);
+    DrawTexturePro(tilesets.interface, (Rectangle){160, 120, 16, 24}, (Rectangle){15 + TILE_WIDTH*i + full_hearts*TILE_WIDTH, 15, 16, 24}, (Vector2){0, 0}, 0.f, WHITE);
   }
   for(int i = 0; i < empty_hearts; i++) {
-    DrawTexturePro(tilesets.interface, (Rectangle){160, 120, 16, 24}, (Rectangle){15 + 24*i + full_hearts*24 + half_hearts*24, 15, 16, 24}, (Vector2){0, 0}, 0.f, WHITE);
+    DrawTexturePro(tilesets.interface, (Rectangle){160, 120, 16, 24}, (Rectangle){15 + TILE_WIDTH*i + full_hearts*TILE_WIDTH + half_hearts*TILE_WIDTH, 15, 16, 24}, (Vector2){0, 0}, 0.f, WHITE);
   }
 }
 
@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
   //SetTextureFilter(r_target.texture, TEXTURE_FILTER_POINT);
   Rectangle r_target_rect = {0, 0, r_target.texture.width, -r_target.texture.height};
 
-  Font font = LoadFontEx("./gfx/alagard.ttf", 14, NULL, 0);
+  Font font = LoadFontEx("./gfx/Perfect DOS VGA 437.ttf", 16.f*4, NULL, 0);
   //SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
 
   unsigned int number_of_rooms = 10;
@@ -119,7 +119,7 @@ int main(int argc, char** argv) {
 
       dc_draw_player_health(tilesets, 3, 10);
 
-      DrawTextEx(font, "Monsters Remaining ?/?", (Vector2){150, 20}, 14.f, 0.1f, WHITE);
+      DrawTextEx(font, "Monsters Remaining ?/?", (Vector2){100, 20}, 16.f, 0.1f, WHITE);
       // SetTextureFilter
 
       EndTextureMode();
