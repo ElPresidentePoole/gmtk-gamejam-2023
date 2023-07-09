@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <math.h>
+#include <time.h>
 #include "mo_colors.h"
 
 #define SCREEN_WIDTH  320
@@ -15,6 +16,9 @@
 #define MAX_ACTORS 128
 #define IFRAME_DURATION 1.f
 #define IFRAME_FLASH_SPEED 4.f // N times a second
+#define FLOOR_WIDTH 5
+#define FLOOR_HEIGHT 5
+#define ROOMS_LENGTH (FLOOR_WIDTH * FLOOR_HEIGHT)
 
 #define COL_LAYER_PLAYER 1 // 0b01
 #define COL_LAYER_ENEMY 2 //  0b10
@@ -109,10 +113,10 @@ void dc_Room_draw(dc_Tilesets tilesets, dc_Room* const room) {
   static const unsigned int horiz_center = room_width / 2;
   static const unsigned int vert_center = room_height / 2;
 
-  static Rectangle hori_wall_rect = (Rectangle){0, 7 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT};
-  static Rectangle vert_wall_rect = (Rectangle){0, 7 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT};
-  static Rectangle closed_door_rect = (Rectangle){2 * TILE_WIDTH, 7 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT};
-  static Rectangle opened_door_rect = (Rectangle){1 * TILE_WIDTH, 7 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT};
+  Rectangle hori_wall_rect = (Rectangle){0, 7 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT};
+  Rectangle vert_wall_rect = (Rectangle){0, 7 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT};
+  Rectangle closed_door_rect = (Rectangle){2 * TILE_WIDTH, 7 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT};
+  Rectangle opened_door_rect = (Rectangle){1 * TILE_WIDTH, 7 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT};
 
   // TODO: remove magic numbers for vert_wall_rect, horiz_wall_rect, closed_door_rect, offset for drawing stuff
 
@@ -187,6 +191,7 @@ void dc_draw_player_targeting(dc_Tilesets tilesets, dc_Actor* player) {
 }
 
 void dc_ai_bat(dc_Actor* const self, dc_Actor* const player) {
+  if(player == NULL) return;
   if(self->iframe_time_remaining > 0) return;
   static const int BAT_SPEED = 50;
 
@@ -222,13 +227,13 @@ void dc_Actor_draw(dc_Actor* actor) {
   DrawTexturePro(actor->textures[actor->current_frame], actor->sources[actor->current_frame], dest, actor->origin, actor->rotation, c);
 }
 
-dc_Actor* dc_Actor_create_bat(dc_Frames* frame_data) {
+dc_Actor* dc_Actor_create_bat(dc_Frames* frame_data, Vector2 pos) {
   dc_Actor* bat = malloc(sizeof(dc_Actor));
   bat->textures = frame_data->dwarf_textures;
   bat->sources = frame_data->dwarf_rects;
   bat->color = WHITE;
   bat->rotation = 0.f;
-  bat->position = (Vector2){200, 100};
+  bat->position = pos;
   bat->velocity = (Vector2){0};
   bat->origin = (Vector2){11, 17};
   bat->time_per_frame = 0.5f;
@@ -271,8 +276,8 @@ dc_Actor* dc_Actor_create_player(dc_Frames* frame_data) {
   player->collision_mask = 0;
   player->collision_damage = 0;
   player->iframe_time_remaining = 0;
-  player->hp = 3;
-  player->hp_max = 3;
+  player->hp = 6;
+  player->hp_max = 6;
   player->ai = NULL;
 
   return player;
@@ -352,9 +357,59 @@ Vector2 dc_get_player_input_vector(void) {
   return dc_get_vector_length(p_input_vec) == 0 ? (Vector2){0} : dc_normalize_vector(p_input_vec);
 }
 
+void dc_Room_generate(dc_Room** rooms, unsigned int old_room_x, unsigned int old_room_y, unsigned int new_room_x, unsigned int new_room_y) {
+  unsigned int old_room_idx = old_room_x + old_room_x * FLOOR_WIDTH;
+  unsigned int new_room_idx = new_room_x + new_room_y * FLOOR_WIDTH;
+
+  if(rooms[new_room_idx] != NULL) return; // room already exists
+  
+  rooms[new_room_idx] = malloc(sizeof(dc_Room));
+  *rooms[new_room_idx] = (dc_Room){0};
+
+  // guarantee a door based on our last room
+  if(old_room_x < new_room_x) {
+    rooms[new_room_idx]->door_west = true;
+  } else if(old_room_x > new_room_x) {
+    rooms[new_room_idx]->door_east = true;
+  } else if(old_room_y < new_room_y) {
+    rooms[new_room_idx]->door_north = true;
+  } else if(old_room_y > new_room_y) {
+    rooms[new_room_idx]->door_south = true;
+  }
+
+  if(!rooms[new_room_idx]->door_west && new_room_x-1 > 0) {
+    // rooms[new_room_idx]->door_west = rand() % 2 == 0;
+    rooms[new_room_idx]->door_west = true;
+  } else if(!rooms[new_room_idx]->door_east && new_room_x+1 < FLOOR_WIDTH) {
+    // rooms[new_room_idx]->door_east = rand() % 2 == 0;
+    rooms[new_room_idx]->door_east = true;
+  } else if(!rooms[new_room_idx]->door_south && new_room_y+1 < FLOOR_HEIGHT) {
+    // rooms[new_room_idx]->door_south = rand() % 2 == 0;
+    rooms[new_room_idx]->door_south = true;
+  } else if(!rooms[new_room_idx]->door_south && new_room_y-1 > 0) {
+    // rooms[new_room_idx]->door_north = rand() % 2 == 0;
+    rooms[new_room_idx]->door_north = true;
+  }
+
+  rooms[new_room_idx]->remaining_monsters = 1 + rand() % 4;
+}
+
+void dc_spawn_actor(dc_Frames* frame_data, dc_Actor** actors, unsigned int new_fella_count) {
+  Vector2 spawn_points[] = {(Vector2){50, 50}, (Vector2){250, 50}, (Vector2){50, 250}, (Vector2){250, 250}};
+
+  for(int e = 0; e < new_fella_count; e++) {
+    for(int a = 0; a < MAX_ACTORS; a++) {
+      if(actors[a] != NULL) continue;
+      actors[a] = dc_Actor_create_bat(frame_data, spawn_points[e]);
+      break;
+    }
+  }
+}
+
 int main(int argc, char** argv) {
+  // srand(time(NULL));
   InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "REVENGE OF THE LICH");
-  SetWindowState(FLAG_WINDOW_RESIZABLE);
+  SetWindowState(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_MAXIMIZED);
 
   Image w_icon = LoadImage("./gfx/gmtk_icon.png");
   SetWindowIcon(w_icon);
@@ -373,17 +428,22 @@ int main(int argc, char** argv) {
   Font font = LoadFontEx("./gfx/Perfect DOS VGA 437.ttf", 16.f*4, NULL, 0);
   //SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
 
-  unsigned int number_of_rooms = 10;
-  unsigned int current_room = 0;
+  unsigned int number_of_rooms = ROOMS_LENGTH;
+  unsigned int current_room = 3 + 3 * FLOOR_WIDTH;
   dc_Room** rooms = malloc(sizeof(dc_Room*) * number_of_rooms);
   for(unsigned int i = 0; i < number_of_rooms; i++) {
     rooms[i] = NULL;
   }
-  rooms[0] = malloc(sizeof(dc_Room));
-  *rooms[0] = (dc_Room){0};
-  rooms[0]->door_north = true;
-  rooms[0]->door_west = true;
-  rooms[0]->remaining_monsters = 1;
+  rooms[current_room] = malloc(sizeof(dc_Room));
+  *rooms[current_room] = (dc_Room){0};
+  {
+    unsigned int fucking_door = rand() % 4;
+    if(fucking_door == 0) rooms[current_room]->door_north = true;
+    else if(fucking_door == 1) rooms[current_room]->door_west = true;
+    else if(fucking_door == 2) rooms[current_room]->door_east = true;
+    else if(fucking_door == 3) rooms[current_room]->door_south = true;
+  }
+  rooms[current_room]->remaining_monsters = 1;
 
   dc_Frames frame_data = {
     .skeleton_textures = {tilesets.zach, tilesets.zach},
@@ -404,7 +464,7 @@ int main(int argc, char** argv) {
   dc_Actor* player = dc_Actor_create_player(&frame_data);
 
   dc_Actor* actors[MAX_ACTORS] = {player};
-  actors[1] = dc_Actor_create_bat(&frame_data);
+  actors[1] = dc_Actor_create_bat(&frame_data, (Vector2){250, 250});
   for(int a = 2; a < MAX_ACTORS; a++) {
     actors[a] = NULL;
   }
@@ -413,22 +473,24 @@ int main(int argc, char** argv) {
 
   while(!WindowShouldClose()) {
     float dt = MIN(GetFrameTime(), 1000.f/15.f); // cap how slow the game can run because i'm not doing interpolation for your commodore 64
-    Vector2 p_input_v = dc_get_player_input_vector();
-    player->velocity.x = p_input_v.x * 100;
-    player->velocity.y = p_input_v.y * 100;
-
-    if(IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-      for(int a = 0; a < MAX_ACTORS; a++) {
-        if(actors[a] != NULL) continue;
-        Vector2 mouse_pos = GetMousePosition();
-        Vector2 screen_scaling = dc_get_screen_scaling_percent();
-        float dx = mouse_pos.x * screen_scaling.x - player->position.x;
-        float dy = mouse_pos.y * screen_scaling.y - player->position.y;
-        float rot = atan2(dy, dx);
-        static const int slice_distance = 12;
-        Vector2 slice_pos = (Vector2){player->position.x + slice_distance * cos(rot), player->position.y + slice_distance * sin(rot)};
-        actors[a] = dc_Actor_create_player_slice(&frame_data, slice_pos, atan2(dy, dx) * RAD2DEG + 135);
-        break;
+    
+    if(player != NULL) {
+      Vector2 p_input_v = dc_get_player_input_vector();
+      player->velocity.x = p_input_v.x * 100;
+      player->velocity.y = p_input_v.y * 100;
+      if(IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        for(int a = 0; a < MAX_ACTORS; a++) {
+          if(actors[a] != NULL) continue;
+          Vector2 mouse_pos = GetMousePosition();
+          Vector2 screen_scaling = dc_get_screen_scaling_percent();
+          float dx = mouse_pos.x * screen_scaling.x - player->position.x;
+          float dy = mouse_pos.y * screen_scaling.y - player->position.y;
+          float rot = atan2(dy, dx);
+          static const int slice_distance = 12;
+          Vector2 slice_pos = (Vector2){player->position.x + slice_distance * cos(rot), player->position.y + slice_distance * sin(rot)};
+          actors[a] = dc_Actor_create_player_slice(&frame_data, slice_pos, atan2(dy, dx) * RAD2DEG + 135);
+          break;
+        }
       }
     }
 
@@ -443,7 +505,68 @@ int main(int argc, char** argv) {
     for(int a = 0; a < MAX_ACTORS; a++) {
       if(actors[a] == NULL) continue;
       if(actors[a] == player && rooms[current_room]->doors_opened) {
-        // TODO: wall collisions/door collision
+        // XXX: magic number bullshit
+        Rectangle north_door_hitbox = (Rectangle){TILE_WIDTH * 9.5, TILE_HEIGHT * 1.8, TILE_WIDTH, TILE_HEIGHT};
+        Rectangle north_wall_hitbox = (Rectangle){TILE_WIDTH * 1.5, TILE_HEIGHT * 1.8, TILE_WIDTH * 17, TILE_HEIGHT};
+        Rectangle south_door_hitbox = (Rectangle){TILE_WIDTH * 8.5, TILE_HEIGHT * 5.6, TILE_WIDTH, TILE_HEIGHT}; // 8.5 and not 9.5?
+        Rectangle south_wall_hitbox = (Rectangle){TILE_WIDTH * 1.5, TILE_HEIGHT * 5.6, TILE_WIDTH * 17, TILE_HEIGHT};
+        Rectangle west_wall_hitbox = (Rectangle){TILE_WIDTH * 0.5, TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT * 5};
+        Rectangle west_door_hitbox = (Rectangle){TILE_WIDTH * 0.5, TILE_HEIGHT * 4, TILE_WIDTH, TILE_HEIGHT};
+        Rectangle east_wall_hitbox = (Rectangle){TILE_WIDTH * 18.5, TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT * 5};
+        Rectangle east_door_hitbox = (Rectangle){TILE_WIDTH * 18.5, TILE_HEIGHT * 4, TILE_WIDTH, TILE_HEIGHT};
+
+        // my beautiful codebase is getting worse as the hour draws near
+        unsigned int old_room_x = current_room % FLOOR_WIDTH;
+        unsigned int old_room_y = current_room / FLOOR_WIDTH;
+        if(rooms[current_room]->door_north && CheckCollisionPointRec(player->position, north_door_hitbox)) {
+          unsigned int new_room_x = old_room_x;
+          unsigned int new_room_y = old_room_y-1;
+          dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y);
+          current_room = new_room_x + new_room_y * FLOOR_WIDTH;
+          player->position.y = TILE_HEIGHT * 2;
+          // we don't check for errors at all, and will probably just fail to spawn em if we some how max out our actors array /shrug
+          dc_spawn_actor(&frame_data, actors, rooms[current_room]->remaining_monsters);
+          break;
+        } else if(rooms[current_room]->door_south && CheckCollisionPointRec(player->position, south_door_hitbox)) {
+          unsigned int new_room_x = old_room_x;
+          unsigned int new_room_y = old_room_y+1;
+          dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y);
+          current_room = new_room_x + new_room_y * FLOOR_WIDTH;
+          player->position.y = TILE_HEIGHT * 5;
+          dc_spawn_actor(&frame_data, actors, rooms[current_room]->remaining_monsters);
+          break;
+        } else if(rooms[current_room]->door_west && CheckCollisionPointRec(player->position, west_door_hitbox)) {
+          unsigned int new_room_x = old_room_x-1;
+          unsigned int new_room_y = old_room_y;
+          dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y);
+          current_room = new_room_x + new_room_y * FLOOR_WIDTH;
+          player->position.x = TILE_WIDTH * 18;
+          dc_spawn_actor(&frame_data, actors, rooms[current_room]->remaining_monsters);
+          break;
+        } else if(rooms[current_room]->door_east && CheckCollisionPointRec(player->position, east_door_hitbox)) {
+          unsigned int new_room_x = old_room_x+1;
+          unsigned int new_room_y = old_room_y;
+          dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y);
+          current_room = new_room_x + new_room_y * FLOOR_WIDTH;
+          player->position.x = TILE_WIDTH;
+          dc_spawn_actor(&frame_data, actors, rooms[current_room]->remaining_monsters);
+          break;
+        }
+
+        // nah get out of that there wall
+        if(CheckCollisionPointRec(player->position, north_wall_hitbox)) {
+          actors[a]->position.x -= actors[a]->velocity.x * dt;
+          actors[a]->position.y -= actors[a]->velocity.y * dt;
+        } else if(CheckCollisionPointRec(player->position, south_wall_hitbox)) {
+          actors[a]->position.x -= actors[a]->velocity.x * dt;
+          actors[a]->position.y -= actors[a]->velocity.y * dt;
+        } else if(CheckCollisionPointRec(player->position, west_wall_hitbox)) {
+          actors[a]->position.x -= actors[a]->velocity.x * dt;
+          actors[a]->position.y -= actors[a]->velocity.y * dt;
+        } else if(CheckCollisionPointRec(player->position, east_wall_hitbox)) {
+          actors[a]->position.x -= actors[a]->velocity.x * dt;
+          actors[a]->position.y -= actors[a]->velocity.y * dt;
+        }
       } else {
         actors[a]->position.x = dc_clampf(actors[a]->position.x, TILE_WIDTH * 2, TILE_WIDTH * 18);
         actors[a]->position.y = dc_clampf(actors[a]->position.y, TILE_HEIGHT * 2.8, TILE_HEIGHT * 5.6);
@@ -464,6 +587,7 @@ int main(int argc, char** argv) {
           }
         }
         free(actors[a]); // we *shouldn't* need to make ->textures or ->sources NULL
+        if(actors[a] == player) player = NULL;
         actors[a] = NULL;
       }
     }
@@ -492,10 +616,17 @@ int main(int argc, char** argv) {
         DrawCircle(player->position.x + 16 * cos(rot), player->position.y + 16 * sin(rot), 4.f, BLUE);
       }*/
 
-      dc_draw_player_health(tilesets, player->hp, player->hp_max);
-      dc_draw_player_targeting(tilesets, player);
+      if(player != NULL) {
+        dc_draw_player_health(tilesets, player->hp, player->hp_max);
+        dc_draw_player_targeting(tilesets, player);
+      }
 
-      DrawTextEx(font, TextFormat("Remaining Monsters: %d", rooms[current_room]->remaining_monsters), (Vector2){100, 20}, 16.f, 0.1f, WHITE);
+
+      if(player == NULL) {
+        DrawTextEx(font, "Game Over!", (Vector2){100, 20}, 16.f, 0.1f, WHITE);
+      } else {
+        DrawTextEx(font, TextFormat("Remaining: %d", rooms[current_room]->remaining_monsters), (Vector2){100, 20}, 16.f, 0.1f, WHITE);
+      }
       // SetTextureFilter
 
       EndTextureMode();
