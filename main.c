@@ -213,9 +213,6 @@ void dc_Actor_update(dc_Actor* const actor_ptr, float dt) {
   // update position based on velocity
   actor_ptr->position.x += actor_ptr->velocity.x * dt;
   actor_ptr->position.y += actor_ptr->velocity.y * dt;
-
-  actor_ptr->position.x = dc_clampf(actor_ptr->position.x, TILE_WIDTH * 2, TILE_WIDTH * 18);
-  actor_ptr->position.y = dc_clampf(actor_ptr->position.y, TILE_HEIGHT * 2.8, TILE_HEIGHT * 5.6);
 }
 
 void dc_Actor_draw(dc_Actor* actor) {
@@ -356,7 +353,7 @@ Vector2 dc_get_player_input_vector(void) {
 }
 
 int main(int argc, char** argv) {
-  InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "SHITHEAD WIZARD");
+  InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "REVENGE OF THE LICH");
   SetWindowState(FLAG_WINDOW_RESIZABLE);
 
   Image w_icon = LoadImage("./gfx/gmtk_icon.png");
@@ -441,6 +438,16 @@ int main(int argc, char** argv) {
 
     for(int a = 0; a < MAX_ACTORS; a++) {
       if(actors[a] != NULL) dc_Actor_update(actors[a], dt);
+    }
+
+    for(int a = 0; a < MAX_ACTORS; a++) {
+      if(actors[a] == NULL) continue;
+      if(actors[a] == player && rooms[current_room]->doors_opened) {
+        // TODO: wall collisions/door collision
+      } else {
+        actors[a]->position.x = dc_clampf(actors[a]->position.x, TILE_WIDTH * 2, TILE_WIDTH * 18);
+        actors[a]->position.y = dc_clampf(actors[a]->position.y, TILE_HEIGHT * 2.8, TILE_HEIGHT * 5.6);
+      }
     }
 
     for(int a = 0; a < MAX_ACTORS; a++) {
