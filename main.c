@@ -13,6 +13,8 @@
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 #define MAX_FRAMES 4
 #define MAX_ACTORS 128
+#define IFRAME_DURATION 1.f
+#define IFRAME_FLASH_SPEED 4.f // N times a second
 
 #define COL_LAYER_PLAYER 1 // 0b01
 #define COL_LAYER_ENEMY 2 //  0b10
@@ -23,7 +25,13 @@ typedef struct {
   Texture2D monsters;
   Texture2D avatar;
   Texture2D fx_general;
+
+  Texture2D zach;
 } dc_Tilesets;
+
+typedef struct {
+  Sound door_open;
+} dc_Sounds;
 
 typedef struct {
   Texture2D skeleton_textures[MAX_FRAMES];
@@ -32,6 +40,9 @@ typedef struct {
   Texture2D slice_textures[MAX_FRAMES];
   Rectangle slice_rects[MAX_FRAMES];
   unsigned int slice_frames;
+  Texture2D dwarf_textures[MAX_FRAMES];
+  Rectangle dwarf_rects[MAX_FRAMES];
+  unsigned int dwarf_frames;
 } dc_Frames;
 
 typedef struct {
@@ -39,11 +50,14 @@ typedef struct {
   bool door_south;
   bool door_east;
   bool door_west;
+  unsigned int remaining_monsters;
+  bool doors_opened;
 } dc_Room;
 
-typedef struct {
+typedef struct dc_Actor_s {
   Texture2D* textures;
   Rectangle* sources;
+  Color color;
   Vector2 position;
   Vector2 velocity;
   Vector2 origin;
@@ -62,7 +76,16 @@ typedef struct {
   float iframe_time_remaining;
   int hp;
   int hp_max;
+  void (*ai)(struct dc_Actor_s* self, struct dc_Actor_s* player);
 } dc_Actor;
+
+float dc_clampf(float n, float min, float max) {
+  return min > n ? min : max < n ? max : n;
+}
+
+Vector2 dc_get_screen_scaling_percent(void) {
+  return (Vector2){SCREEN_WIDTH / (float)GetScreenWidth(), SCREEN_HEIGHT / (float)GetScreenHeight()};
+}
 
 double dc_get_vector_length(Vector2 v) {
   return v.x * v.x + v.y * v.y; 
@@ -73,47 +96,63 @@ Vector2 dc_normalize_vector(Vector2 v) {
   return (Vector2){v.x / length, v.y / length};
 }
 
-void dc_Room_draw(dc_Tilesets tilesets, dc_Room room) {
+Vector2 dc_get_direction_to(Vector2 from, Vector2 to) {
+  float dx = to.x - from.x;
+  float dy = to.y - from.y;
+  float rot = atan2(dy, dx);
+  return (Vector2){cos(rot), sin(rot)};
+}
+
+void dc_Room_draw(dc_Tilesets tilesets, dc_Room* const room) {
   static const unsigned int room_width = 17;
   static const unsigned int room_height = 4;
   static const unsigned int horiz_center = room_width / 2;
   static const unsigned int vert_center = room_height / 2;
 
+  static Rectangle hori_wall_rect = (Rectangle){0, 7 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT};
+  static Rectangle vert_wall_rect = (Rectangle){0, 7 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT};
+  static Rectangle closed_door_rect = (Rectangle){2 * TILE_WIDTH, 7 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT};
+  static Rectangle opened_door_rect = (Rectangle){1 * TILE_WIDTH, 7 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT};
+
   // TODO: remove magic numbers for vert_wall_rect, horiz_wall_rect, closed_door_rect, offset for drawing stuff
 
   // north wall
   for(unsigned int i = 0; i < room_width; i++) {
-    if(i == horiz_center && room.door_north) {
-      DrawTexturePro(tilesets.terrain, (Rectangle){7 * TILE_WIDTH, 2 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){TILE_WIDTH * 1.5 + TILE_WIDTH * i, TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, WHITE);
+    if(i == horiz_center && room->door_north) {
+      if(room->doors_opened) DrawTexturePro(tilesets.zach, opened_door_rect, (Rectangle){TILE_WIDTH * 1.5 + TILE_WIDTH * i, TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, WHITE);
+      else DrawTexturePro(tilesets.zach, closed_door_rect, (Rectangle){TILE_WIDTH * 1.5 + TILE_WIDTH * i, TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, WHITE);
     } else {
-      DrawTexturePro(tilesets.terrain, (Rectangle){0, 3 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){TILE_WIDTH * 1.5 + TILE_WIDTH * i, TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, BRICKRED);
+      DrawTexturePro(tilesets.zach, hori_wall_rect, (Rectangle){TILE_WIDTH * 1.5 + TILE_WIDTH * i, TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, BRICKRED);
     }
   }
 
   // south wall
   for(unsigned int i = 0; i < room_width+2; i++) {
-    if(i == horiz_center && room.door_south) {
-      DrawTexturePro(tilesets.terrain, (Rectangle){7 * TILE_WIDTH, 2 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){TILE_WIDTH * 0.5 + TILE_WIDTH * i, TILE_HEIGHT * 6, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, WHITE);
+    if(i == horiz_center && room->door_south) {
+      if(room->doors_opened) DrawTexturePro(tilesets.zach, opened_door_rect, (Rectangle){TILE_WIDTH * 0.5 + TILE_WIDTH * i, TILE_HEIGHT * 6, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, WHITE);
+      else DrawTexturePro(tilesets.zach, closed_door_rect, (Rectangle){TILE_WIDTH * 0.5 + TILE_WIDTH * i, TILE_HEIGHT * 6, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, WHITE);
     } else {
-      DrawTexturePro(tilesets.terrain, (Rectangle){0, 3 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){TILE_WIDTH * 0.5 + TILE_WIDTH * i, TILE_HEIGHT * 6, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, BRICKRED);
+      DrawTexturePro(tilesets.zach, hori_wall_rect, (Rectangle){TILE_WIDTH * 0.5 + TILE_WIDTH * i, TILE_HEIGHT * 6, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, BRICKRED);
     }
   }
 
   // west wall
   for(unsigned int i = 0; i < room_height; i++) {
-    if(i == vert_center && room.door_west) {
-      DrawTexturePro(tilesets.terrain, (Rectangle){7 * TILE_WIDTH, 2 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){TILE_WIDTH * 0.5, TILE_HEIGHT * i + TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, WHITE);
+    if(i == vert_center && room->door_west) {
+      if(room->doors_opened) DrawTexturePro(tilesets.zach, opened_door_rect, (Rectangle){TILE_WIDTH * 0.5, TILE_HEIGHT * i + TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, WHITE);
+      else DrawTexturePro(tilesets.zach, closed_door_rect, (Rectangle){TILE_WIDTH * 0.5, TILE_HEIGHT * i + TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, WHITE);
     } else {
-      DrawTexturePro(tilesets.terrain, (Rectangle){0, 2 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){TILE_WIDTH * 0.5, TILE_HEIGHT * i + TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, BRICKRED);
+      DrawTexturePro(tilesets.zach, vert_wall_rect, (Rectangle){TILE_WIDTH * 0.5, TILE_HEIGHT * i + TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, BRICKRED);
     }
   }
 
   // east wall
   for(unsigned int i = 0; i < room_height; i++) {
-    if(i == vert_center && room.door_east) {
-      DrawTexturePro(tilesets.terrain, (Rectangle){7 * TILE_WIDTH, 2 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){TILE_WIDTH * room_width + TILE_WIDTH * 1.5, TILE_HEIGHT * i + TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, WHITE);
+    if(i == vert_center && room->door_east) {
+      if(room->doors_opened) DrawTexturePro(tilesets.zach, opened_door_rect, (Rectangle){TILE_WIDTH * room_width + TILE_WIDTH * 1.5, TILE_HEIGHT * i + TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, WHITE);
+      else DrawTexturePro(tilesets.zach, closed_door_rect, (Rectangle){TILE_WIDTH * room_width + TILE_WIDTH * 1.5, TILE_HEIGHT * i + TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, WHITE);
     } else {
-      DrawTexturePro(tilesets.terrain, (Rectangle){0 * TILE_WIDTH, 2 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){TILE_WIDTH * room_width + TILE_WIDTH * 1.5, TILE_HEIGHT * i + TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, BRICKRED);
+      DrawTexturePro(tilesets.zach, vert_wall_rect, (Rectangle){TILE_WIDTH * room_width + TILE_WIDTH * 1.5, TILE_HEIGHT * i + TILE_HEIGHT * 2, TILE_WIDTH, TILE_HEIGHT}, (Vector2){0, 0}, 0.f, BRICKRED);
     }
   }
 }
@@ -135,10 +174,6 @@ void dc_draw_player_health(dc_Tilesets tilesets, int hp, int hp_max) {
   }
 }
 
-Vector2 dc_get_screen_scaling_percent() {
-return (Vector2){SCREEN_WIDTH / (float)GetScreenWidth(), SCREEN_HEIGHT / (float)GetScreenHeight()};
-}
-
 //void dc_draw_player_targeting(dc_Tilesets tilesets, dc_Actor player, Camera2D cam) {
 void dc_draw_player_targeting(dc_Tilesets tilesets, dc_Actor* player) {
   // Vector2 mouse_pos = GetWorldToScreen2D(GetMousePosition(), cam);
@@ -147,8 +182,17 @@ void dc_draw_player_targeting(dc_Tilesets tilesets, dc_Actor* player) {
   mouse_pos.x = mouse_pos.x * screen_scale.x;
   mouse_pos.y = mouse_pos.y * screen_scale.y;
   // Vector2 dir_to_mouse = dc_normalize_vector((Vector2){mouse_pos.x - player.position.x, mouse_pos.y - player.position.y});
-  double angle_to_mouse = atan2(mouse_pos.y - player->position.y, mouse_pos.x - player->position.x) * 180 / PI + 135;
-  DrawTexturePro(tilesets.fx_general, (Rectangle){12 * TILE_WIDTH, 0, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){player->position.x, player->position.y, TILE_WIDTH, TILE_HEIGHT}, (Vector2){15, 16}, angle_to_mouse, WHITE);
+  double angle_to_mouse = atan2(mouse_pos.y - player->position.y, mouse_pos.x - player->position.x) * RAD2DEG + 135;
+  DrawTexturePro(tilesets.fx_general, (Rectangle){12 * TILE_WIDTH, 0, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){player->position.x, player->position.y, TILE_WIDTH, TILE_HEIGHT}, (Vector2){15, 16}, angle_to_mouse, TBLUE);
+}
+
+void dc_ai_bat(dc_Actor* const self, dc_Actor* const player) {
+  if(self->iframe_time_remaining > 0) return;
+  static const int BAT_SPEED = 50;
+
+  self->velocity = dc_get_direction_to(self->position, player->position);
+  self->velocity.x *= BAT_SPEED;
+  self->velocity.y *= BAT_SPEED;
 }
 
 void dc_Actor_update(dc_Actor* const actor_ptr, float dt) {
@@ -169,28 +213,33 @@ void dc_Actor_update(dc_Actor* const actor_ptr, float dt) {
   // update position based on velocity
   actor_ptr->position.x += actor_ptr->velocity.x * dt;
   actor_ptr->position.y += actor_ptr->velocity.y * dt;
+
+  actor_ptr->position.x = dc_clampf(actor_ptr->position.x, TILE_WIDTH * 2, TILE_WIDTH * 18);
+  actor_ptr->position.y = dc_clampf(actor_ptr->position.y, TILE_HEIGHT * 2.8, TILE_HEIGHT * 5.6);
 }
 
 void dc_Actor_draw(dc_Actor* actor) {
   if(actor->has_shadow) DrawEllipse(actor->position.x + actor->shadow_offset.x, actor->position.y + actor->shadow_offset.y, TILE_WIDTH / 2.f, 2, GRAY);
   Rectangle dest = {actor->position.x, actor->position.y, TILE_WIDTH, TILE_HEIGHT};
-  DrawTexturePro(actor->textures[actor->current_frame], actor->sources[actor->current_frame], dest, actor->origin, actor->rotation, WHITE);
+  Color c = actor->iframe_time_remaining > 0 ? (Color){255u * sin(GetTime() * IFRAME_FLASH_SPEED), 255u * sin(GetTime() * IFRAME_FLASH_SPEED), 255u * sin(GetTime() * IFRAME_FLASH_SPEED), 255u} : actor->color;
+  DrawTexturePro(actor->textures[actor->current_frame], actor->sources[actor->current_frame], dest, actor->origin, actor->rotation, c);
 }
 
 dc_Actor* dc_Actor_create_bat(dc_Frames* frame_data) {
   dc_Actor* bat = malloc(sizeof(dc_Actor));
-  bat->textures = frame_data->skeleton_textures;
-  bat->sources = frame_data->skeleton_rects;
+  bat->textures = frame_data->dwarf_textures;
+  bat->sources = frame_data->dwarf_rects;
+  bat->color = WHITE;
   bat->rotation = 0.f;
   bat->position = (Vector2){200, 100};
   bat->velocity = (Vector2){0};
-  bat->origin = (Vector2){TILE_WIDTH/2, TILE_HEIGHT/2};
+  bat->origin = (Vector2){11, 17};
   bat->time_per_frame = 0.5f;
   bat->time_until_next_frame = 0.5f;
   bat->current_frame = 0;
   bat->has_shadow = true;
   bat->shadow_offset = (Vector2){0, TILE_HEIGHT * 0.3};
-  bat->frame_count = frame_data->skeleton_frames;
+  bat->frame_count = frame_data->dwarf_frames;
   bat->free_on_anim_comp = false;
   bat->should_be_freed = false;
   bat->collision_layer = COL_LAYER_ENEMY;
@@ -199,6 +248,7 @@ dc_Actor* dc_Actor_create_bat(dc_Frames* frame_data) {
   bat->iframe_time_remaining = 0;
   bat->hp = 3;
   bat->hp_max = 3;
+  bat->ai = dc_ai_bat;
 
   return bat;
 }
@@ -207,15 +257,16 @@ dc_Actor* dc_Actor_create_player(dc_Frames* frame_data) {
   dc_Actor* player = malloc(sizeof(dc_Actor));
   player->textures = frame_data->skeleton_textures;
   player->sources = frame_data->skeleton_rects;
+  player->color = WHITE;
   player->rotation = 0.f;
   player->position = (Vector2){100, 100};
-  player->origin = (Vector2){TILE_WIDTH/2, TILE_HEIGHT/2};
+  player->origin = (Vector2){10, 13};
   player->velocity = (Vector2){0};
   player->time_per_frame = 0.5f;
   player->time_until_next_frame = 0.5f;
   player->current_frame = 0;
   player->has_shadow = true;
-  player->shadow_offset = (Vector2){0, TILE_HEIGHT * 0.3};
+  player->shadow_offset = (Vector2){1, TILE_HEIGHT * 0.475};
   player->frame_count = frame_data->skeleton_frames;
   player->free_on_anim_comp = false;
   player->should_be_freed = false;
@@ -225,6 +276,7 @@ dc_Actor* dc_Actor_create_player(dc_Frames* frame_data) {
   player->iframe_time_remaining = 0;
   player->hp = 3;
   player->hp_max = 3;
+  player->ai = NULL;
 
   return player;
 }
@@ -233,12 +285,14 @@ dc_Actor* dc_Actor_create_player_slice(dc_Frames* frame_data, Vector2 pos, float
   dc_Actor* slice = malloc(sizeof(dc_Actor));
   slice->textures = frame_data->slice_textures;
   slice->sources = frame_data->slice_rects;
+  slice->color = WHITE;
   slice->rotation = rot;
   // slice->position = (Vector2){pos.x - 16 * cos(rot * DEG2RAD), pos.y - 16 * sin(rot * DEG2RAD)};
   slice->position = pos;
-  slice->position.x -= 16 * cos(rot * DEG2RAD);
-  slice->position.y -= 16 * sin(rot * DEG2RAD);
+  //slice->position.x -= 16 * cos(rot * DEG2RAD);
+  //slice->position.y -= 16 * sin(rot * DEG2RAD);
   // slice->origin = (Vector2){15, 16};
+  // slice->origin = (Vector2){TILE_WIDTH/2, TILE_HEIGHT/2};
   slice->origin = (Vector2){TILE_WIDTH/2, TILE_HEIGHT/2};
   slice->velocity = (Vector2){0};
   slice->time_per_frame = 0.1f;
@@ -255,6 +309,7 @@ dc_Actor* dc_Actor_create_player_slice(dc_Frames* frame_data, Vector2 pos, float
   slice->iframe_time_remaining = 0;
   slice->hp = 1; // not like it matters; this has no layer so it can't be hit!
   slice->hp_max = 1;
+  slice->ai = NULL;
 
   return slice;
 }
@@ -270,16 +325,20 @@ void dc_Actor_handle_collisions(dc_Actor** actors) { // const?
       if(us->iframe_time_remaining > 0 || them->iframe_time_remaining > 0) continue;
       if(!CheckCollisionCircles(us->position, TILE_WIDTH/2.f, them->position, TILE_WIDTH/2.f)) continue;
       if(us->collision_mask & them->collision_layer) {
-        printf("youch!\n");
         them->hp -= us->collision_damage;
-        if(them->hp <= 0) them->should_be_freed = true;
-        else them->iframe_time_remaining = 5.f; // something absurdly long
+        Vector2 v = dc_get_direction_to(us->position, them->position);
+        v.x *= 20;
+        v.y *= 20;
+        them->velocity = v;
+        if(them->hp <= 0) {
+          them->should_be_freed = true;
+        } else them->iframe_time_remaining = IFRAME_DURATION;
       }
     }
   }
 }
 
-Vector2 dc_get_player_input_vector() {
+Vector2 dc_get_player_input_vector(void) {
   Vector2 p_input_vec = (Vector2){0};
   if(IsKeyDown(KEY_A)) {
     p_input_vec.x -= 1;
@@ -300,10 +359,15 @@ int main(int argc, char** argv) {
   InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "SHITHEAD WIZARD");
   SetWindowState(FLAG_WINDOW_RESIZABLE);
 
+  Image w_icon = LoadImage("./gfx/gmtk_icon.png");
+  SetWindowIcon(w_icon);
+
+  InitAudioDevice();
+
   Texture2D f_tex = LoadTexture("./gfx/frame.png");
   Rectangle f_rect = {0, 0, f_tex.width, f_tex.height};
 
-  dc_Tilesets tilesets = {.interface = LoadTexture("./gfx/oryx/Interface.png"), .terrain = LoadTexture("./gfx/oryx/Terrain.png"), .monsters = LoadTexture("./gfx/oryx/Monsters.png"), .avatar = LoadTexture("./gfx/oryx/Avatar.png"), .fx_general = LoadTexture("./gfx/oryx/FX_General.png")};
+  dc_Tilesets tilesets = {.interface = LoadTexture("./gfx/oryx/Interface.png"), .terrain = LoadTexture("./gfx/oryx/Terrain.png"), .monsters = LoadTexture("./gfx/oryx/Monsters.png"), .avatar = LoadTexture("./gfx/oryx/Avatar.png"), .fx_general = LoadTexture("./gfx/oryx/FX_General.png"), .zach = LoadTexture("./gfx/gmtk_spritesheet.png")};
 
   RenderTexture2D r_target = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
   //SetTextureFilter(r_target.texture, TEXTURE_FILTER_POINT);
@@ -313,6 +377,7 @@ int main(int argc, char** argv) {
   //SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
 
   unsigned int number_of_rooms = 10;
+  unsigned int current_room = 0;
   dc_Room** rooms = malloc(sizeof(dc_Room*) * number_of_rooms);
   for(unsigned int i = 0; i < number_of_rooms; i++) {
     rooms[i] = NULL;
@@ -321,14 +386,22 @@ int main(int argc, char** argv) {
   *rooms[0] = (dc_Room){0};
   rooms[0]->door_north = true;
   rooms[0]->door_west = true;
+  rooms[0]->remaining_monsters = 1;
 
   dc_Frames frame_data = {
-    .skeleton_textures = {tilesets.monsters, tilesets.monsters},
-    .skeleton_rects = {(Rectangle){1 * TILE_WIDTH, 12 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){1 * TILE_WIDTH, 13 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}},
+    .skeleton_textures = {tilesets.zach, tilesets.zach},
+    .skeleton_rects = {(Rectangle){1 * TILE_WIDTH, 6 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){2 * TILE_WIDTH, 6 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}},
     .skeleton_frames = 2,
     .slice_textures = {tilesets.fx_general, tilesets.fx_general, tilesets.fx_general},
     .slice_rects = {(Rectangle){12 * TILE_WIDTH, 0, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){13 * TILE_WIDTH, 0, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){14 * TILE_WIDTH, 0, TILE_WIDTH, TILE_HEIGHT}},
-    .slice_frames = 3
+    .slice_frames = 3,
+    .dwarf_textures = {tilesets.zach, tilesets.zach},
+    .dwarf_rects = {(Rectangle){1 * TILE_WIDTH, 4 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}, (Rectangle){2 * TILE_WIDTH, 4 * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT}},
+    .dwarf_frames = 2
+  };
+
+  dc_Sounds sounds = {
+    .door_open = LoadSound("./sfx/door_open.wav")
   };
 
   dc_Actor* player = dc_Actor_create_player(&frame_data);
@@ -354,9 +427,16 @@ int main(int argc, char** argv) {
         Vector2 screen_scaling = dc_get_screen_scaling_percent();
         float dx = mouse_pos.x * screen_scaling.x - player->position.x;
         float dy = mouse_pos.y * screen_scaling.y - player->position.y;
-        actors[a] = dc_Actor_create_player_slice(&frame_data, player->position, atan2(dy, dx) * 180 / PI + 135);
+        float rot = atan2(dy, dx);
+        static const int slice_distance = 12;
+        Vector2 slice_pos = (Vector2){player->position.x + slice_distance * cos(rot), player->position.y + slice_distance * sin(rot)};
+        actors[a] = dc_Actor_create_player_slice(&frame_data, slice_pos, atan2(dy, dx) * RAD2DEG + 135);
         break;
       }
+    }
+
+    for(int a = 0; a < MAX_ACTORS; a++) {
+      if(actors[a] != NULL && actors[a]->ai != NULL) actors[a]->ai(actors[a], player);
     }
 
     for(int a = 0; a < MAX_ACTORS; a++) {
@@ -369,6 +449,13 @@ int main(int argc, char** argv) {
 
     for(int a = 0; a < MAX_ACTORS; a++) {
       if(actors[a] != NULL && actors[a]->should_be_freed) {
+        if(actors[a]->ai != NULL) {
+          rooms[current_room]->remaining_monsters--;
+          if(rooms[current_room]->remaining_monsters == 0 && !rooms[current_room]->doors_opened) {
+            PlaySound(sounds.door_open);
+            rooms[current_room]->doors_opened = true;
+          }
+        }
         free(actors[a]); // we *shouldn't* need to make ->textures or ->sources NULL
         actors[a] = NULL;
       }
@@ -379,7 +466,7 @@ int main(int argc, char** argv) {
       ClearBackground(BLACK);
 
       BeginMode2D(cam);
-      dc_Room_draw(tilesets, *rooms[0]);
+      dc_Room_draw(tilesets, rooms[current_room]);
 
       for(int a = 0; a < MAX_ACTORS; a++) {
         if(actors[a] != NULL) dc_Actor_draw(actors[a]);
@@ -388,10 +475,20 @@ int main(int argc, char** argv) {
 
       DrawTexturePro(f_tex, f_rect, f_rect, (Vector2){0}, 0.f, WHITE);
 
+      // removed debug shit because I am bad a trig
+      /*{
+        Vector2 mouse_pos = GetMousePosition();
+        Vector2 screen_scaling = dc_get_screen_scaling_percent();
+        float dx = mouse_pos.x * screen_scaling.x - player->position.x;
+        float dy = mouse_pos.y * screen_scaling.y - player->position.y;
+        float rot = atan2(dy, dx);
+        DrawCircle(player->position.x + 16 * cos(rot), player->position.y + 16 * sin(rot), 4.f, BLUE);
+      }*/
+
       dc_draw_player_health(tilesets, player->hp, player->hp_max);
       dc_draw_player_targeting(tilesets, player);
 
-      DrawTextEx(font, "Monsters Remaining ?/?", (Vector2){100, 20}, 16.f, 0.1f, WHITE);
+      DrawTextEx(font, TextFormat("Remaining Monsters: %d", rooms[current_room]->remaining_monsters), (Vector2){100, 20}, 16.f, 0.1f, WHITE);
       // SetTextureFilter
 
       EndTextureMode();
@@ -407,6 +504,7 @@ int main(int argc, char** argv) {
   UnloadTexture(tilesets.monsters);
   UnloadTexture(tilesets.avatar);
   UnloadTexture(tilesets.fx_general);
+  UnloadTexture(tilesets.zach);
   for(unsigned int i = 0; i < number_of_rooms; i++) {
     if(rooms[i] != NULL) free(rooms[i]);
   }
@@ -417,6 +515,12 @@ int main(int argc, char** argv) {
   }
 
   UnloadFont(font);
+
+  UnloadSound(sounds.door_open);
+
+  UnloadImage(w_icon);
+
+  CloseAudioDevice();
 
   return 0;
 }

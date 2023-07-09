@@ -3,6 +3,7 @@ OBJECTS = main.o
 CC = gcc
 ifeq ($(OS), Windows_NT)
 	FLAGS = -lraylib -lopengl32 -lgdi32 -lwinmm -std=c99 -Wall -Wpedantic
+	OBJECTS += my.res
 else
 	FLAGS = -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -std=c99 -Wall -Wpedantic
 endif
