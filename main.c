@@ -19,14 +19,15 @@
 #define FLOOR_WIDTH 7
 #define FLOOR_HEIGHT 7
 #define ROOMS_LENGTH (FLOOR_WIDTH * FLOOR_HEIGHT)
+#define ROOMS_TO_WIN 10
 
 #define COL_LAYER_PLAYER 1 // 0b01
 #define COL_LAYER_ENEMY 2 //  0b10
 
 typedef struct {
   Texture2D interface;
-  Texture2D terrain;
-  Texture2D monsters;
+  // Texture2D terrain;
+  // Texture2D monsters;
   Texture2D avatar;
   Texture2D fx_general;
 
@@ -360,7 +361,7 @@ Vector2 dc_get_player_input_vector(void) {
   return dc_get_vector_length(p_input_vec) == 0 ? (Vector2){0} : dc_normalize_vector(p_input_vec);
 }
 
-void dc_Room_generate(dc_Room** rooms, unsigned int old_room_x, unsigned int old_room_y, unsigned int new_room_x, unsigned int new_room_y) {
+void dc_Room_generate(dc_Room** rooms, unsigned int old_room_x, unsigned int old_room_y, unsigned int new_room_x, unsigned int new_room_y, unsigned int rooms_cleared) {
   unsigned int old_room_idx = old_room_x + old_room_x * FLOOR_WIDTH;
   unsigned int new_room_idx = new_room_x + new_room_y * FLOOR_WIDTH;
 
@@ -414,7 +415,10 @@ void dc_Room_generate(dc_Room** rooms, unsigned int old_room_x, unsigned int old
 
   printf("%d, %d\n", new_room_x, new_room_y);
 
-  rooms[new_room_idx]->remaining_monsters = 1 + rand() % 4;
+  if(rooms_cleared < ROOMS_TO_WIN) rooms[new_room_idx]->remaining_monsters = 1 + rand() % 4;
+  else {
+    rooms[new_room_idx]->remaining_monsters = 0;
+  }
 }
 
 void dc_spawn_actor(dc_Frames* frame_data, dc_Actor** actors, unsigned int new_fella_count) {
@@ -442,7 +446,13 @@ int main(int argc, char** argv) {
   Texture2D f_tex = LoadTexture("./gfx/frame.png");
   Rectangle f_rect = {0, 0, f_tex.width, f_tex.height};
 
-  dc_Tilesets tilesets = {.interface = LoadTexture("./gfx/oryx/Interface.png"), .terrain = LoadTexture("./gfx/oryx/Terrain.png"), .monsters = LoadTexture("./gfx/oryx/Monsters.png"), .avatar = LoadTexture("./gfx/oryx/Avatar.png"), .fx_general = LoadTexture("./gfx/oryx/FX_General.png"), .zach = LoadTexture("./gfx/gmtk_spritesheet.png")};
+  dc_Tilesets tilesets = {
+    .interface = LoadTexture("./gfx/oryx/Interface.png"), 
+    // .terrain = LoadTexture("./gfx/oryx/Terrain.png"), 
+    // .monsters = LoadTexture("./gfx/oryx/Monsters.png"), 
+    .avatar = LoadTexture("./gfx/oryx/Avatar.png"), 
+    .fx_general = LoadTexture("./gfx/oryx/FX_General.png"), 
+    .zach = LoadTexture("./gfx/gmtk_spritesheet.png")};
 
   RenderTexture2D r_target = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
   //SetTextureFilter(r_target.texture, TEXTURE_FILTER_POINT);
@@ -494,6 +504,8 @@ int main(int argc, char** argv) {
 
   Camera2D cam = {(Vector2){0}, (Vector2){0}, 0.f, 1.f};
 
+  unsigned int rooms_cleared = 0;
+
   while(!WindowShouldClose()) {
     float dt = MIN(GetFrameTime(), 1000.f/15.f); // cap how slow the game can run because i'm not doing interpolation for your commodore 64
     
@@ -544,7 +556,7 @@ int main(int argc, char** argv) {
         if(rooms[current_room]->door_north && CheckCollisionPointRec(player->position, north_door_hitbox)) {
           unsigned int new_room_x = old_room_x;
           unsigned int new_room_y = old_room_y-1;
-          dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y);
+          dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y, rooms_cleared);
           current_room = new_room_x + new_room_y * FLOOR_WIDTH;
           player->position.y = TILE_HEIGHT * 3;
           // we don't check for errors at all, and will probably just fail to spawn em if we some how max out our actors array /shrug
@@ -553,7 +565,7 @@ int main(int argc, char** argv) {
         } else if(rooms[current_room]->door_south && CheckCollisionPointRec(player->position, south_door_hitbox)) {
           unsigned int new_room_x = old_room_x;
           unsigned int new_room_y = old_room_y+1;
-          dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y);
+          dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y, rooms_cleared);
           current_room = new_room_x + new_room_y * FLOOR_WIDTH;
           player->position.y = TILE_HEIGHT * 5;
           dc_spawn_actor(&frame_data, actors, rooms[current_room]->remaining_monsters);
@@ -561,7 +573,7 @@ int main(int argc, char** argv) {
         } else if(rooms[current_room]->door_west && CheckCollisionPointRec(player->position, west_door_hitbox)) {
           unsigned int new_room_x = old_room_x-1;
           unsigned int new_room_y = old_room_y;
-          dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y);
+          dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y, rooms_cleared);
           current_room = new_room_x + new_room_y * FLOOR_WIDTH;
           player->position.x = TILE_WIDTH * 18;
           dc_spawn_actor(&frame_data, actors, rooms[current_room]->remaining_monsters);
@@ -569,7 +581,7 @@ int main(int argc, char** argv) {
         } else if(rooms[current_room]->door_east && CheckCollisionPointRec(player->position, east_door_hitbox)) {
           unsigned int new_room_x = old_room_x+1;
           unsigned int new_room_y = old_room_y;
-          dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y);
+          dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y, rooms_cleared);
           current_room = new_room_x + new_room_y * FLOOR_WIDTH;
           player->position.x = TILE_WIDTH * 2;
           dc_spawn_actor(&frame_data, actors, rooms[current_room]->remaining_monsters);
@@ -607,6 +619,7 @@ int main(int argc, char** argv) {
           if(rooms[current_room]->remaining_monsters == 0 && !rooms[current_room]->doors_opened) {
             PlaySound(sounds.door_open);
             rooms[current_room]->doors_opened = true;
+            rooms_cleared++;
           }
         }
         free(actors[a]); // we *shouldn't* need to make ->textures or ->sources NULL
@@ -620,38 +633,42 @@ int main(int argc, char** argv) {
       ClearBackground(BLACK);
 
       BeginMode2D(cam);
-      dc_Room_draw(tilesets, rooms[current_room]);
-
-      for(int a = 0; a < MAX_ACTORS; a++) {
-        if(actors[a] != NULL) dc_Actor_draw(actors[a]);
-      }
-      EndMode2D();
-
-      DrawTexturePro(f_tex, f_rect, f_rect, (Vector2){0}, 0.f, WHITE);
-
-      // removed debug shit because I am bad a trig
-      /*{
-        Vector2 mouse_pos = GetMousePosition();
-        Vector2 screen_scaling = dc_get_screen_scaling_percent();
-        float dx = mouse_pos.x * screen_scaling.x - player->position.x;
-        float dy = mouse_pos.y * screen_scaling.y - player->position.y;
-        float rot = atan2(dy, dx);
-        DrawCircle(player->position.x + 16 * cos(rot), player->position.y + 16 * sin(rot), 4.f, BLUE);
-      }*/
-
-      if(player != NULL) {
-        dc_draw_player_health(tilesets, player->hp, player->hp_max);
-        dc_draw_player_targeting(tilesets, player);
-      }
-
-
-      if(player == NULL) {
-        DrawTextEx(font, "Game Over!", (Vector2){100, 20}, 16.f, 0.1f, WHITE);
+      if(rooms_cleared >= ROOMS_TO_WIN) {
+        DrawTextEx(font, TextFormat("You escaped the dungeon and \nenacted revenge on \nthe town of adventurers.\n\nYou win!"), (Vector2){20, 20}, 16.f, 0.1f, WHITE);
       } else {
-        DrawTextEx(font, TextFormat("Remaining: %d", rooms[current_room]->remaining_monsters), (Vector2){100, 20}, 16.f, 0.1f, WHITE);
-      }
-      // SetTextureFilter
+        dc_Room_draw(tilesets, rooms[current_room]);
 
+        for(int a = 0; a < MAX_ACTORS; a++) {
+          if(actors[a] != NULL) dc_Actor_draw(actors[a]);
+        }
+        EndMode2D();
+
+        DrawTexturePro(f_tex, f_rect, f_rect, (Vector2){0}, 0.f, WHITE);
+
+        // removed debug shit because I am bad a trig
+        /*{
+          Vector2 mouse_pos = GetMousePosition();
+          Vector2 screen_scaling = dc_get_screen_scaling_percent();
+          float dx = mouse_pos.x * screen_scaling.x - player->position.x;
+          float dy = mouse_pos.y * screen_scaling.y - player->position.y;
+          float rot = atan2(dy, dx);
+          DrawCircle(player->position.x + 16 * cos(rot), player->position.y + 16 * sin(rot), 4.f, BLUE);
+          }*/
+
+        if(player != NULL) {
+          dc_draw_player_health(tilesets, player->hp, player->hp_max);
+          dc_draw_player_targeting(tilesets, player);
+        }
+
+
+        if(player == NULL) {
+          DrawTextEx(font, "Game Over!", (Vector2){100, 20}, 16.f, 0.1f, WHITE);
+        } else {
+          DrawTextEx(font, TextFormat("Remaining: %d", rooms[current_room]->remaining_monsters), (Vector2){100, 20}, 16.f, 0.1f, WHITE);
+        }
+        // SetTextureFilter
+
+      }
       EndTextureMode();
       Rectangle r_window_rect = {0, 0, GetScreenWidth(), GetScreenHeight()};
       DrawTexturePro(r_target.texture, r_target_rect, r_window_rect, (Vector2){0, 0}, 0.f, WHITE);
@@ -661,8 +678,8 @@ int main(int argc, char** argv) {
   CloseWindow();
   UnloadTexture(f_tex);
   UnloadTexture(tilesets.interface);
-  UnloadTexture(tilesets.terrain);
-  UnloadTexture(tilesets.monsters);
+  // UnloadTexture(tilesets.terrain);
+  // UnloadTexture(tilesets.monsters);
   UnloadTexture(tilesets.avatar);
   UnloadTexture(tilesets.fx_general);
   UnloadTexture(tilesets.zach);
