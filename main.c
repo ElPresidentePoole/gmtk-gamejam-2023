@@ -16,8 +16,8 @@
 #define MAX_ACTORS 128
 #define IFRAME_DURATION 1.f
 #define IFRAME_FLASH_SPEED 4.f // N times a second
-#define FLOOR_WIDTH 5
-#define FLOOR_HEIGHT 5
+#define FLOOR_WIDTH 7
+#define FLOOR_HEIGHT 7
 #define ROOMS_LENGTH (FLOOR_WIDTH * FLOOR_HEIGHT)
 
 #define COL_LAYER_PLAYER 1 // 0b01
@@ -164,7 +164,10 @@ void dc_Room_draw(dc_Tilesets tilesets, dc_Room* const room) {
 void dc_draw_player_health(dc_Tilesets tilesets, int hp, int hp_max) {
   unsigned int full_hearts = hp / 2;
   unsigned int half_hearts = hp % 2;
-  unsigned int empty_hearts = full_hearts + half_hearts - hp_max / 2;
+  // this line below caused a nearly infinite loop and broke fucking everything
+  // the game was unplayable until the last 30 minutes
+  // unsigned int empty_hearts = full_hearts + half_hearts - hp_max / 2;
+  unsigned int empty_hearts = hp_max / 2 - half_hearts - full_hearts;
   for(int i = 0; i < full_hearts; i++) {
     DrawTexturePro(tilesets.interface, (Rectangle){160, 120, 16, 24}, (Rectangle){15 + TILE_WIDTH*i, 15, 16, 24}, (Vector2){0, 0}, 0.f, WHITE);
     DrawTexturePro(tilesets.interface, (Rectangle){176, 120, 16, 24}, (Rectangle){15 + TILE_WIDTH*i, 14, 16, 24}, (Vector2){0, 0}, 0.f, RED);
@@ -377,6 +380,7 @@ void dc_Room_generate(dc_Room** rooms, unsigned int old_room_x, unsigned int old
     rooms[new_room_idx]->door_south = true;
   }
 
+  /*
   if(!rooms[new_room_idx]->door_west && new_room_x-1 > 0) {
     // rooms[new_room_idx]->door_west = rand() % 2 == 0;
     rooms[new_room_idx]->door_west = true;
@@ -389,7 +393,26 @@ void dc_Room_generate(dc_Room** rooms, unsigned int old_room_x, unsigned int old
   } else if(!rooms[new_room_idx]->door_south && new_room_y-1 > 0) {
     // rooms[new_room_idx]->door_north = rand() % 2 == 0;
     rooms[new_room_idx]->door_north = true;
+  }*/
+
+  if(new_room_x != 0) {
+    // rooms[new_room_idx]->door_west = rand() % 2 == 0;
+    rooms[new_room_idx]->door_west = true;
   }
+  if(new_room_x != FLOOR_WIDTH - 1) {
+    // rooms[new_room_idx]->door_east = rand() % 2 == 0;
+    rooms[new_room_idx]->door_east = true;
+  }
+  if(new_room_y != FLOOR_HEIGHT - 1) {
+    // rooms[new_room_idx]->door_south = rand() % 2 == 0;
+    rooms[new_room_idx]->door_south = true;
+  }
+  if(new_room_y != 0) {
+    // rooms[new_room_idx]->door_north = rand() % 2 == 0;
+    rooms[new_room_idx]->door_north = true;
+  }
+
+  printf("%d, %d\n", new_room_x, new_room_y);
 
   rooms[new_room_idx]->remaining_monsters = 1 + rand() % 4;
 }
@@ -429,7 +452,7 @@ int main(int argc, char** argv) {
   //SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
 
   unsigned int number_of_rooms = ROOMS_LENGTH;
-  unsigned int current_room = 3 + 3 * FLOOR_WIDTH;
+  unsigned int current_room = 2 + 2 * FLOOR_WIDTH;
   dc_Room** rooms = malloc(sizeof(dc_Room*) * number_of_rooms);
   for(unsigned int i = 0; i < number_of_rooms; i++) {
     rooms[i] = NULL;
@@ -523,7 +546,7 @@ int main(int argc, char** argv) {
           unsigned int new_room_y = old_room_y-1;
           dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y);
           current_room = new_room_x + new_room_y * FLOOR_WIDTH;
-          player->position.y = TILE_HEIGHT * 2;
+          player->position.y = TILE_HEIGHT * 3;
           // we don't check for errors at all, and will probably just fail to spawn em if we some how max out our actors array /shrug
           dc_spawn_actor(&frame_data, actors, rooms[current_room]->remaining_monsters);
           break;
@@ -548,7 +571,7 @@ int main(int argc, char** argv) {
           unsigned int new_room_y = old_room_y;
           dc_Room_generate(rooms, old_room_x, old_room_y, new_room_x, new_room_y);
           current_room = new_room_x + new_room_y * FLOOR_WIDTH;
-          player->position.x = TILE_WIDTH;
+          player->position.x = TILE_WIDTH * 2;
           dc_spawn_actor(&frame_data, actors, rooms[current_room]->remaining_monsters);
           break;
         }
@@ -643,7 +666,7 @@ int main(int argc, char** argv) {
   UnloadTexture(tilesets.avatar);
   UnloadTexture(tilesets.fx_general);
   UnloadTexture(tilesets.zach);
-  for(unsigned int i = 0; i < number_of_rooms; i++) {
+  for(unsigned int i = 0; i < ROOMS_LENGTH; i++) {
     if(rooms[i] != NULL) free(rooms[i]);
   }
   free(rooms);
